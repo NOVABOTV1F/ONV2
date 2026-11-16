@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #07080c;
+  --color-surface: #14161e;
+  --color-surface-2: #1c1f2a;
+  --color-fg: #f3efe6;
+  --color-muted: #9c968c;
+  --color-pass: #a39b90;
+  --color-primary: #e4a24a;
+  --color-primary-ink: #1a1206;
+  --color-ember: #e07a4a;
+  --color-border: #2c303c;
+  --color-line: #4a4032;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
+  --radius: 0.5rem;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+  }
+
+  input::placeholder {
+    color: var(--color-muted);
+  }
+
+  ::selection {
+    background: var(--color-primary);
+    color: var(--color-primary-ink);
+  }
+}
