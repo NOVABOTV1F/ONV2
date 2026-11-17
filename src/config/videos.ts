@@ -13,9 +13,9 @@
  * Bisa juga ditimpa dari TOLS ADMIN tanpa mengubah file ini.
  */
 export const VIDEO_LINKS = {
-  satu: "/videos/satu.mp4",
-  dua: "/videos/dua.mp4",
-  tiga: "/videos/tiga.mp4",
+  satu: "/https://github.com/NOVABOTV1F/ONV2/intro.mp4",
+  dua: "https://github.com/NOVABOTV1F/ONV2/login.mp4",
+  tiga: "https://github.com/NOVABOTV1F/ONV2/generete.mp4",
 } as const;
 
 export type VideoKey = keyof typeof VIDEO_LINKS;
