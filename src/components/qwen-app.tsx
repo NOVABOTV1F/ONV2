@@ -68,7 +68,6 @@ export function QwenApp() {
       <PoolVideo
         src={links.satu}
         sound={sound}
-        active={view === "intro" || view === "register"}
         broken={broken.satu}
         onBroken={() => setBroken((b) => ({ ...b, satu: true }))}
         className={
@@ -80,18 +79,16 @@ export function QwenApp() {
       <PoolVideo
         src={links.dua}
         sound={sound}
-        active={view === "login"}
         broken={broken.dua}
         onBroken={() => setBroken((b) => ({ ...b, dua: true }))}
-        className={view === "login" ? "fixed inset-x-0 top-0 z-0 h-48 w-full object-cover sm:h-56" : PARK}
+        className={view === "login" ? "fixed inset-x-0 top-0 z-0 h-52 w-full object-cover sm:h-64" : PARK}
       />
       <PoolVideo
         src={links.tiga}
         sound={sound}
-        active={view === "desk"}
         broken={broken.tiga}
         onBroken={() => setBroken((b) => ({ ...b, tiga: true }))}
-        className={view === "desk" ? "fixed inset-x-0 top-14 z-0 h-44 w-full object-cover sm:h-52" : PARK}
+        className={view === "desk" ? "fixed inset-x-0 top-14 z-0 h-48 w-full object-cover sm:h-60" : PARK}
       />
 
       {view !== "desk" ? (
@@ -213,3 +210,105 @@ export function QwenApp() {
     </main>
   );
 }
+
+function PoolVideo({
+  src,
+  sound,
+  className,
+  broken,
+  onBroken,
+}: {
+  src: string;
+  sound: boolean;
+  className: string;
+  broken?: boolean;
+  onBroken: () => void;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || broken) return;
+    const fail = () => onBroken();
+    node.addEventListener("error", fail);
+    if (node.error) fail();
+    node.muted = !sound;
+    const pending = node.play();
+    if (pending) {
+      void pending.catch(() => {
+        node.muted = true;
+        void node.play().catch(() => undefined);
+      });
+    }
+    return () => node.removeEventListener("error", fail);
+  }, [sound, src, broken]);
+
+  if (broken || !src) {
+    return (
+      <div className={`${className} bg-surface`} aria-hidden="true">
+        <div className="flex h-full items-end p-4 text-sm text-muted">Video belum bisa diputar. Ganti link di file video atau TOLS ADMIN.</div>
+      </div>
+    );
+  }
+
+  return (
+    <video
+      ref={ref}
+      className={className}
+      src={src}
+      autoPlay
+      loop
+      muted={!sound}
+      playsInline
+      preload="auto"
+      onError={onBroken}
+    />
+  );
+}
+
+function Intro({
+  sound,
+  hasSession,
+  onLogin,
+  onRegister,
+}: {
+  sound: boolean;
+  hasSession: boolean;
+  onLogin: () => void;
+  onRegister: () => void;
+}) {
+  return (
+    <section className="relative z-10 flex min-h-screen items-center justify-center px-5 py-16">
+      <div className="w-full max-w-md border border-line bg-bg/80 p-6 shadow-none backdrop-blur-md sm:p-8">
+        <p className="text-xs font-semibold tracking-widest text-primary">MESIN OTP</p>
+        <h1 className="mt-3 font-display text-4xl leading-none font-extrabold sm:text-5xl">
+          QWEN
+          <span className="block text-primary">GENERETE</span>
+        </h1>
+        <p className="mt-4 max-w-sm text-sm text-muted">
+          {sound
+            ? "Suara video nyala. Login dan registrasi langsung di sini."
+            : "Klik di mana saja — suara video ikut nyala, termasuk di halaman login."}
+        </p>
+        <div className="mt-8 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={onLogin}
+            className="h-12 bg-primary text-base font-semibold text-primary-ink"
+          >
+            {hasSession ? "LANJUT" : "LOGIN"}
+          </button>
+          <button
+            type="button"
+            onClick={onRegister}
+            className="h-12 border border-border bg-surface/80 text-base font-semibold text-fg"
+          >
+            REGISTRASI
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// The rest of the functions (Register, Login, Desk, GearModal, ToolsPanel, etc.) are in the full original. This is a temporary restore to stop the crash. Full fixed version will follow.
