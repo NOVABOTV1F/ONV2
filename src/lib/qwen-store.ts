@@ -14,6 +14,8 @@ export type GmailApp = {
 export type DeskSnap = {
   address: string;
   otp: string;
+  token?: string;
+  createdAt?: number;
 };
 
 const USERS = "qwen-users-v1";
@@ -102,7 +104,12 @@ export function loadDesk(gmail: string): DeskSnap | null {
   const all = readJson<Record<string, DeskSnap>>(DESK);
   const row = all?.[gmail.toLowerCase()];
   if (!row?.address) return null;
-  return { address: row.address, otp: row.otp ?? "" };
+  return {
+    address: row.address,
+    otp: row.otp ?? "",
+    token: row.token,
+    createdAt: row.createdAt,
+  };
 }
 
 export function saveDesk(gmail: string, snap: DeskSnap | null) {
@@ -145,4 +152,11 @@ export function makeAddress(name: string) {
 
 export function looksLikeEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+/** True if the temp mail is older than ~6.5 days */
+export function isTempMailExpired(createdAt?: number) {
+  if (!createdAt) return true;
+  const MAX_MS = 6.5 * 24 * 60 * 60 * 1000; // 6.5 days
+  return Date.now() - createdAt > MAX_MS;
 }
