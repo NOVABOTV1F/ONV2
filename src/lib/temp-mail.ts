@@ -1,4 +1,6 @@
-/** Free temporary email via mail.tm API – real inbox that can receive OTPs */
+/** Free temporary email via mail.tm – runs on server to avoid CORS */
+
+import { createServerFn } from "@tanstack/react-start";
 
 const API = "https://api.mail.tm";
 
@@ -17,7 +19,7 @@ async function getActiveDomain(): Promise<string> {
   return domain;
 }
 
-export async function createTempMail(prefix = "qwen"): Promise<TempMailAccount> {
+async function createAccountOnServer(prefix: string): Promise<TempMailAccount> {
   const domain = await getActiveDomain();
   const local = `${prefix}${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 5)}`;
   const address = `${local}@${domain}`;
@@ -31,7 +33,7 @@ export async function createTempMail(prefix = "qwen"): Promise<TempMailAccount> 
 
   if (!createRes.ok) {
     const err = await createRes.json().catch(() => ({}));
-    throw new Error(err?.detail || "Gagal buat email sementara");
+    throw new Error((err as any)?.detail || "Gagal buat email sementara");
   }
 
   const tokenRes = await fetch(`${API}/token`, {
@@ -48,7 +50,7 @@ export async function createTempMail(prefix = "qwen"): Promise<TempMailAccount> 
   return { address, password, token };
 }
 
-export async function fetchLatestOtp(token: string, maxWaitMs = 25000): Promise<string | null> {
+async function pollOtpOnServer(token: string, maxWaitMs: number): Promise<string | null> {
   const start = Date.now();
   const otpRegex = /\b(\d{4,8})\b/g;
 
@@ -57,19 +59,17 @@ export async function fetchLatestOtp(token: string, maxWaitMs = 25000): Promise<
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
-      await new Promise((r) => setTimeout(r, 2500));
+      await new Promise((r) => setTimeout(r, 2200));
       continue;
     }
     const data = await res.json();
     const messages = data?.["hydra:member"] || [];
 
     for (const msg of messages) {
-      // Prefer subject first
       const subject = msg.subject || "";
       const subMatch = subject.match(otpRegex);
       if (subMatch) return subMatch[0];
 
-      // Then fetch full message if needed
       if (msg.id) {
         const fullRes = await fetch(`${API}/messages/${msg.id}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -82,7 +82,30 @@ export async function fetchLatestOtp(token: string, maxWaitMs = 25000): Promise<
         }
       }
     }
-    await new Promise((r) => setTimeout(r, 2500));
+    await new Promise((r) => setTimeout(r, 2200));
   }
   return null;
 }
+
+// Server function: create temp mail
+export const createTempMail = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const prefix = typeof data === "string" ? data : (data as any)?.prefix || "qwen";
+    return String(prefix).slice(0, 12) || "qwen";
+  })
+  .handler(async ({ data: prefix }) => {
+    return createAccountOnServer(prefix);
+  });
+
+// Server function: poll for OTP
+export const fetchLatestOtp = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as any;
+    const token = String(d?.token || "").trim();
+    const maxWaitMs = Math.min(Number(d?.maxWaitMs) || 25000, 30000);
+    if (!token) throw new Error("Token kosong");
+    return { token, maxWaitMs };
+  })
+  .handler(async ({ data }) => {
+    return pollOtpOnServer(data.token, data.maxWaitMs);
+  });
