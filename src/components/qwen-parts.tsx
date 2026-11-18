@@ -24,6 +24,7 @@ import {
   saveUsers,
   saveVideoLinks,
   spinWaitMs,
+  isTempMailExpired,
   type DeskSnap,
   type GmailApp,
   type QwenUser,
@@ -166,18 +167,13 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const job = useRef(0);
+  const autoDone = useRef(false);
 
-  useEffect(() => {
-    const snap = loadDesk(session.gmail) as any;
-    if (!snap) return;
-    setAddress(snap.address || "");
-    setToken(snap.token || "");
-    if (snap.otp) { setOtp(snap.otp); setReel(snap.otp); setPhase("local"); }
-  }, [session.gmail]);
+  function persist(next: DeskSnap) {
+    saveDesk(session.gmail, next);
+  }
 
-  function persist(next: any) { saveDesk(session.gmail, next); }
-
-  async function generate() {
+  async function generate(force = false) {
     setGenerating(true);
     setError("");
     setOtp("");
@@ -185,15 +181,38 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
     setPhase("idle");
     try {
       const acc = await createTempMail(session.name?.slice(0, 6) || "qwen");
+      const now = Date.now();
       setAddress(acc.address);
       setToken(acc.token);
-      persist({ address: acc.address, otp: "", token: acc.token });
+      persist({ address: acc.address, otp: "", token: acc.token, createdAt: now });
     } catch (e: any) {
       setError(e?.message || "Gagal buat email sementara. Coba lagi.");
     } finally {
       setGenerating(false);
     }
   }
+
+  useEffect(() => {
+    const snap = loadDesk(session.gmail);
+    if (!snap) return;
+
+    // Auto refresh if older than ~6.5 days
+    if (isTempMailExpired(snap.createdAt)) {
+      if (!autoDone.current) {
+        autoDone.current = true;
+        void generate(true);
+      }
+      return;
+    }
+
+    setAddress(snap.address || "");
+    setToken(snap.token || "");
+    if (snap.otp) {
+      setOtp(snap.otp);
+      setReel(snap.otp);
+      setPhase("local");
+    }
+  }, [session.gmail]);
 
   async function takeOtp() {
     if (!address) { setError("Generate gmail dulu."); return; }
@@ -210,7 +229,8 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
         setOtp(code);
         setReel(code);
         setPhase("local");
-        persist({ address, otp: code, token });
+        const snap = loadDesk(session.gmail);
+        persist({ address, otp: code, token, createdAt: snap?.createdAt || Date.now() });
       } else {
         setPhase("fail");
         setError("Belum ada OTP masuk. Pastikan sudah pakai email ini di aplikasi, lalu coba lagi.");
