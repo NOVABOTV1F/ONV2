@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Copy, LogOut, Settings } from "lucide-react";
 import { ADMIN_GATE } from "@/config/admin";
 import { VIDEO_LINKS, type VideoKey, type VideoLinks } from "@/config/videos";
 import { sendOtpEmail } from "@/lib/send-otp";
+import { createTempMail, fetchLatestOtp } from "@/lib/temp-mail";
 import {
   gmailAppOn,
   hashPass,
@@ -28,7 +29,7 @@ import {
   type QwenUser,
 } from "@/lib/qwen-store";
 
-type OtpPhase = "idle" | "spin" | "local" | "mailed" | "fail";
+type OtpPhase = "idle" | "spin" | "local" | "mailed" | "fail" | "waiting";
 
 const inputClass =
   "h-12 w-full border border-border bg-surface px-3 text-base text-fg outline-none focus-visible:border-primary";
@@ -157,55 +158,68 @@ export function Login({ users, onBack, onIn }: any) {
 
 export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onLeave }: any) {
   const [address, setAddress] = useState("");
+  const [token, setToken] = useState("");
   const [otp, setOtp] = useState("");
   const [phase, setPhase] = useState<OtpPhase>("idle");
   const [reel, setReel] = useState("------");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const job = useRef(0);
 
   useEffect(() => {
-    const snap = loadDesk(session.gmail);
+    const snap = loadDesk(session.gmail) as any;
     if (!snap) return;
-    setAddress(snap.address);
-    if (snap.otp && !emailMode) { setOtp(snap.otp); setReel(snap.otp); setPhase("local"); }
-  }, [session.gmail, emailMode]);
+    setAddress(snap.address || "");
+    setToken(snap.token || "");
+    if (snap.otp) { setOtp(snap.otp); setReel(snap.otp); setPhase("local"); }
+  }, [session.gmail]);
 
   function persist(next: any) { saveDesk(session.gmail, next); }
 
-  function generate() {
-    const next = makeAddress();
-    setAddress(next);
+  async function generate() {
+    setGenerating(true);
+    setError("");
     setOtp("");
     setReel("------");
     setPhase("idle");
-    setError("");
-    persist({ address: next, otp: "" });
+    try {
+      const acc = await createTempMail(session.name?.slice(0, 6) || "qwen");
+      setAddress(acc.address);
+      setToken(acc.token);
+      persist({ address: acc.address, otp: "", token: acc.token });
+    } catch (e: any) {
+      setError(e?.message || "Gagal buat email sementara. Coba lagi.");
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function takeOtp() {
     if (!address) { setError("Generate gmail dulu."); return; }
+    if (!token) { setError("Token hilang. Generate ulang."); return; }
     setError("");
     const id = ++job.current;
-    const nextCode = makeOtp();
-    setPhase("spin");
-    const wait = spinWaitMs();
-    const timer = window.setInterval(() => { if (!emailMode && job.current === id) setReel(randomReel()); }, 70);
-    await sleep(wait);
-    window.clearInterval(timer);
-    if (job.current !== id) return;
-    if (emailMode && gmailApp) {
-      const res = await sendOtpEmail({ data: { to: session.gmail, code: nextCode, fromUser: gmailApp.user, fromPass: gmailApp.pass, note: `OTP untuk ${address}` } });
+    setPhase("waiting");
+    setReel("menunggu...");
+
+    try {
+      const code = await fetchLatestOtp(token, 28000);
       if (job.current !== id) return;
-      if (!res.ok) { setPhase("fail"); setError(res.error || "Gagal kirim."); persist({ address, otp: "" }); return; }
-      setPhase("mailed");
-      persist({ address, otp: "" });
-      return;
+      if (code) {
+        setOtp(code);
+        setReel(code);
+        setPhase("local");
+        persist({ address, otp: code, token });
+      } else {
+        setPhase("fail");
+        setError("Belum ada OTP masuk. Pastikan sudah pakai email ini di aplikasi, lalu coba lagi.");
+      }
+    } catch (e: any) {
+      if (job.current !== id) return;
+      setPhase("fail");
+      setError(e?.message || "Gagal cek inbox.");
     }
-    setReel(nextCode);
-    setOtp(nextCode);
-    setPhase("local");
-    persist({ address, otp: nextCode });
   }
 
   async function copyAddress() {
@@ -229,22 +243,27 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
       <div className="mx-auto flex w-full max-w-lg flex-col gap-4 px-4 pt-5 pb-16">
         <p className="text-[0.65rem] font-semibold tracking-[0.2em] text-primary sm:text-xs sm:tracking-widest">VIDEO 03 DI ATAS</p>
         <h1 className="font-display text-2xl font-extrabold leading-tight sm:text-4xl">GENERETE GMAIL</h1>
-        <p className="text-sm text-muted">Halo {session.name}. Ambil alamatnya, pakai, lalu minta OTP. {emailMode ? "App Gmail aktif — OTP dikirim ke Gmail." : "App Gmail kosong — OTP muncul di kotak, 3–7 detik."}</p>
-        <button type="button" onClick={generate} className="h-12 bg-primary text-base font-semibold text-primary-ink">GENERETE GMAIL</button>
+        <p className="text-sm text-muted">
+          Halo {session.name}. Email di bawah ini <strong>real</strong> (bisa terima OTP asli dari aplikasi).
+          Tekan Generate → pakai di app → tekan Minta OTP.
+        </p>
+        <button type="button" onClick={() => void generate()} disabled={generating} className="h-12 bg-primary text-base font-semibold text-primary-ink disabled:opacity-60">
+          {generating ? "Membuat email..." : "GENERETE GMAIL"}
+        </button>
         <div className="border border-border bg-surface p-4">
-          <p className="text-xs font-semibold tracking-widest text-muted">GMAIL</p>
+          <p className="text-xs font-semibold tracking-widest text-muted">GMAIL (REAL TEMP)</p>
           <p className="mt-2 text-lg break-all text-fg">{address || "Belum ada. Tekan generete."}</p>
-          <button type="button" onClick={copyAddress} className="mt-3 h-10 border border-border px-3 text-sm">{copied ? "Tersalin!" : "Salin"}</button>
+          <button type="button" onClick={copyAddress} disabled={!address} className="mt-3 h-10 border border-border px-3 text-sm disabled:opacity-50">{copied ? "Tersalin!" : "Salin"}</button>
         </div>
-        <button type="button" onClick={() => void takeOtp()} className="h-12 border border-border bg-surface/80 text-base font-semibold">MINTA OTP</button>
+        <button type="button" onClick={() => void takeOtp()} disabled={!address || phase === "waiting"} className="h-12 border border-border bg-surface/80 text-base font-semibold disabled:opacity-60">
+          {phase === "waiting" ? "Menunggu OTP masuk..." : "MINTA OTP"}
+        </button>
         {phase !== "idle" && (
           <div className="border border-border bg-surface px-4 py-4">
             <p className="text-xs font-semibold tracking-widest text-muted">OTP</p>
-            {phase === "spin" && !emailMode && <p className="mt-2 font-display text-3xl tracking-widest text-primary">{reel}</p>}
-            {phase === "spin" && emailMode && <p className="mt-2 text-sm">Mengirim…</p>}
+            {phase === "waiting" && <p className="mt-2 text-sm text-muted">Sedang menunggu email masuk (max ~25 detik)...</p>}
             {phase === "local" && <p className="mt-2 font-display text-3xl tracking-widest text-primary">{otp}</p>}
-            {phase === "mailed" && <p className="mt-2 text-sm">Kode dikirim ke Gmail kamu.</p>}
-            {phase === "fail" && <p className="mt-2 text-sm text-ember">{error}</p>}
+            {phase === "fail" && <p className="mt-2 text-sm text-ember">{error || "Gagal."}</p>}
           </div>
         )}
         {error && phase === "idle" && <p className="text-sm text-ember">{error}</p>}
