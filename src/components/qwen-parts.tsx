@@ -173,14 +173,15 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
     saveDesk(session.gmail, next);
   }
 
-  async function generate(force = false) {
+  async function generate() {
     setGenerating(true);
     setError("");
     setOtp("");
     setReel("------");
     setPhase("idle");
     try {
-      const acc = await createTempMail(session.name?.slice(0, 6) || "qwen");
+      const prefix = session.name?.slice(0, 6) || "qwen";
+      const acc = await createTempMail({ data: prefix });
       const now = Date.now();
       setAddress(acc.address);
       setToken(acc.token);
@@ -200,7 +201,7 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
     if (isTempMailExpired(snap.createdAt)) {
       if (!autoDone.current) {
         autoDone.current = true;
-        void generate(true);
+        void generate();
       }
       return;
     }
@@ -223,7 +224,7 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
     setReel("menunggu...");
 
     try {
-      const code = await fetchLatestOtp(token, 28000);
+      const code = await fetchLatestOtp({ data: { token, maxWaitMs: 28000 } });
       if (job.current !== id) return;
       if (code) {
         setOtp(code);
@@ -264,14 +265,14 @@ export function Desk({ session, admin, emailMode, gmailApp, onTools, onGear, onL
         <p className="text-[0.65rem] font-semibold tracking-[0.2em] text-primary sm:text-xs sm:tracking-widest">VIDEO 03 DI ATAS</p>
         <h1 className="font-display text-2xl font-extrabold leading-tight sm:text-4xl">GENERETE GMAIL</h1>
         <p className="text-sm text-muted">
-          Halo {session.name}. Email di bawah ini <strong>real</strong> (bisa terima OTP asli dari aplikasi).
+          Halo {session.name}. Email di bawah ini bisa terima OTP asli dari aplikasi.
           Tekan Generate → pakai di app → tekan Minta OTP.
         </p>
         <button type="button" onClick={() => void generate()} disabled={generating} className="h-12 bg-primary text-base font-semibold text-primary-ink disabled:opacity-60">
           {generating ? "Membuat email..." : "GENERETE GMAIL"}
         </button>
         <div className="border border-border bg-surface p-4">
-          <p className="text-xs font-semibold tracking-widest text-muted">GMAIL (REAL TEMP)</p>
+          <p className="text-xs font-semibold tracking-widest text-muted">GMAIL</p>
           <p className="mt-2 text-lg break-all text-fg">{address || "Belum ada. Tekan generete."}</p>
           <button type="button" onClick={copyAddress} disabled={!address} className="mt-3 h-10 border border-border px-3 text-sm disabled:opacity-50">{copied ? "Tersalin!" : "Salin"}</button>
         </div>
