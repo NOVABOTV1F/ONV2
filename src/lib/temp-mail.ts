@@ -1,78 +1,41 @@
-/** Free temporary email via mail.tm – server-side with retries + fallback */
+/** Free temporary email via Guerrilla Mail API (works from Vercel) */
 
 import { createServerFn } from "@tanstack/react-start";
 
-const API = "https://api.mail.tm";
-const FALLBACK_DOMAIN = "euploading.com";
-
-const headers = {
-  Accept: "application/json",
-  "Content-Type": "application/json",
-  "User-Agent": "QWEN-GENERETE/1.0",
-};
+const API = "https://api.guerrillamail.com/ajax.php";
 
 export type TempMailAccount = {
   address: string;
-  password: string;
-  token: string;
+  password: string; // unused for guerrilla, kept for type compat
+  token: string; // sid_token
 };
 
 async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function fetchJson(url: string, init?: RequestInit, retries = 2): Promise<any> {
-  let lastErr: Error | null = null;
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const res = await fetch(url, {
-        ...init,
-        headers: { ...headers, ...(init?.headers || {}) },
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 120)}`);
-      }
-      return await res.json();
-    } catch (e: any) {
-      lastErr = e instanceof Error ? e : new Error(String(e));
-      if (i < retries) await sleep(600 * (i + 1));
-    }
+async function gmFetch(params: Record<string, string>): Promise<any> {
+  const qs = new URLSearchParams({ ...params, ip: "127.0.0.1", agent: "Mozilla_foo_bar" });
+  const res = await fetch(`${API}?${qs.toString()}`, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Mozilla/5.0 (compatible; QWEN/1.0)",
+    },
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${t.slice(0, 100)}`);
   }
-  throw lastErr || new Error("Fetch gagal");
+  return res.json();
 }
 
-async function getActiveDomain(): Promise<string> {
-  try {
-    const data = await fetchJson(`${API}/domains`);
-    const domain = data?.["hydra:member"]?.[0]?.domain;
-    if (domain) return domain;
-  } catch {
-    // fall through to fallback
-  }
-  return FALLBACK_DOMAIN;
-}
-
-async function createAccountOnServer(prefix: string): Promise<TempMailAccount> {
-  const domain = await getActiveDomain();
-  const local = `${prefix}${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 5)}`;
-  const address = `${local}@${domain}`;
-  const password = `Qw${Math.random().toString(36).slice(2, 10)}9!`;
-
-  await fetchJson(`${API}/accounts`, {
-    method: "POST",
-    body: JSON.stringify({ address, password }),
-  });
-
-  const tokenData = await fetchJson(`${API}/token`, {
-    method: "POST",
-    body: JSON.stringify({ address, password }),
-  });
-
-  const token = tokenData?.token;
-  if (!token) throw new Error("Token kosong dari mail.tm");
-
-  return { address, password, token };
+async function createAccountOnServer(_prefix: string): Promise<TempMailAccount> {
+  // Guerrilla returns a random address + sid_token
+  const data = await gmFetch({ f: "get_email_address" });
+  const address = data?.email_addr;
+  const token = data?.sid_token;
+  if (!address || !token) throw new Error("Gagal buat email sementara (Guerrilla)");
+  return { address, password: "", token };
 }
 
 async function pollOtpOnServer(token: string, maxWaitMs: number): Promise<string | null> {
@@ -81,33 +44,39 @@ async function pollOtpOnServer(token: string, maxWaitMs: number): Promise<string
 
   while (Date.now() - start < maxWaitMs) {
     try {
-      const data = await fetchJson(`${API}/messages`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const messages = data?.["hydra:member"] || [];
+      // check_email returns list of messages
+      const data = await gmFetch({ f: "check_email", sid_token: token, seq: "0" });
+      const list = data?.list || [];
 
-      for (const msg of messages) {
-        const subject = msg.subject || "";
+      for (const msg of list) {
+        // skip the welcome mail from Guerrilla itself
+        const from = (msg.mail_from || "").toLowerCase();
+        if (from.includes("guerrillamail") || from.includes("no-reply@guerrillamail")) continue;
+
+        const subject = msg.mail_subject || "";
         const subMatch = subject.match(otpRegex);
         if (subMatch) return subMatch[0];
 
-        if (msg.id) {
+        // fetch full body
+        if (msg.mail_id) {
           try {
-            const full = await fetchJson(`${API}/messages/${msg.id}`, {
-              headers: { Authorization: `Bearer ${token}` },
+            const full = await gmFetch({
+              f: "fetch_email",
+              sid_token: token,
+              email_id: String(msg.mail_id),
             });
-            const text = `${full.subject || ""} ${full.text || ""} ${full.intro || ""}`;
+            const text = `${full.mail_subject || ""} ${full.mail_body || ""} ${full.mail_excerpt || ""}`;
             const match = text.match(otpRegex);
             if (match) return match[0];
           } catch {
-            // ignore single message fetch error
+            // ignore single fetch error
           }
         }
       }
     } catch {
       // keep polling
     }
-    await sleep(2200);
+    await sleep(2500);
   }
   return null;
 }
